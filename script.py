@@ -18,6 +18,8 @@ for res in result:
 	res.save_to_img("output")
 	res.save_to_json("output")
 
+#	add a commit
+
 ## print(dir(os))
 #print("Hello, Arch Linux")
 #print("Hello, Arch Linux")
