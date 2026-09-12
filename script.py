@@ -18,20 +18,3 @@ for res in result:
 	res.save_to_img("output")
 	res.save_to_json("output")
 
-#	add a commit
-
-## print(dir(os))
-#print("Hello, Arch Linux")
-#print("Hello, Arch Linux")
-
-# doc = pymupdf.open("./materials/sample.pdf")
-#doc = pymupdf.open("./script.txt")
-#print(doc)
-##
-#out = open("output.txt", "wb")
-#for page in doc:
-#	text = page.get_text().encode("utf8")
-#	out.write(text)
-#	out.write(bytes((12,)))
-#out.close()
-#doc.close()
