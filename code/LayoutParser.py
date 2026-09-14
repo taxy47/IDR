@@ -1,17 +1,23 @@
+import os
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
+
 import pymupdf
 from paddleocr import PPStructureV3
+from PIL import Image
 
 # 1. 将 PDF 页面转换为图像
 doc = pymupdf.open("../materials/sample.pdf")
-engine = PPStructureV3(show_log=False, lang="ch")
+engine = PPStructureV3(lang="ch")
 
 for page_idx, page in enumerate(doc):
-  pix = page.get_pixmap(dpi=150)
+  pix = page.get_pixmap(dpi=100)
   img_path = f"temp_page_{page_idx}.png"
   pix.save(img_path)
 
   # 2. 执行版面分析与识别
-  result = engine(img_path)
+  output = engine.predict(img_path)		
+  #result = engine(img_path)
 
   # 3. 遍历切分出的各个版面区块
   for region in result:
