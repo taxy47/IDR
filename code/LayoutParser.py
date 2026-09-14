@@ -1,9 +1,9 @@
 import pymupdf
-from paddleocr import PPStructure
+from paddleocr import PPStructureV3
 
 # 1. 将 PDF 页面转换为图像
 doc = pymupdf.open("../materials/sample.pdf")
-engine = PPStructure(show_log=False, lang="ch")
+engine = PPStructureV3(show_log=False, lang="ch")
 
 for page_idx, page in enumerate(doc):
   pix = page.get_pixmap(dpi=150)
