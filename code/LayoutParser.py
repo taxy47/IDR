@@ -3,25 +3,32 @@ os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
 
 import pymupdf
-from paddleocr import PPStructureV3
 from PIL import Image
+from paddleocr import PPStructureV3
 
-# 1. 将 PDF 页面转换为图像
 doc = pymupdf.open("../materials/sample.pdf")
 engine = PPStructureV3(lang="ch")
 
 for page_idx, page in enumerate(doc):
-  pix = page.get_pixmap(dpi=100)
-  img_path = f"temp_page_{page_idx}.png"
-  pix.save(img_path)
+    # 1. 导出图像
+    pix = page.get_pixmap(dpi=150)
+    img_path = f"temp_page_{page_idx}.png"
+    pix.save(img_path)
 
-  # 2. 执行版面分析与识别
-  output = engine.predict(img_path)		
-  #result = engine(img_path)
+    # 2. 强制将长边限制在 1200 像素以内，防止内存爆炸
+    img = Image.open(img_path)
+    max_side = 1200
+    if max(img.size) > max_side:
+        ratio = max_side / max(img.size)
+        new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
+        img.save(img_path)
 
-  # 3. 遍历切分出的各个版面区块
-  for region in result:
-    region_type = region["type"]  # 区域类型：text, title, table, figure 等
-    bbox = region["bbox"]  # 坐标：[x1, y1, x2, y2]
-    content = region.get("res", [])  # 对应区域的文本或结构化数据
-    print(f"区块类型: {region_type}, 边界框: {bbox}")
+    # 3. 安全推理
+    output = engine.predict(img_path)
+
+    for res in output:
+        res_dict = res.json 
+        regions = res_dict.get("layout_result", [])
+        for region in regions:
+            print(f"区块类型: {region.get('type')}, 边界框: {region.get('bbox')}")
