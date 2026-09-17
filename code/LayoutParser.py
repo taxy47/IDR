@@ -28,7 +28,8 @@ for page_idx, page in enumerate(doc):
     output = engine.predict(img_path)
 
     for res in output:
+        print(res.json)
         res_dict = res.json 
-        regions = res_dict.get("layout_result", [])
+        regions = res_dict.get("parsing_res_list", [])
         for region in regions:
             print(f"区块类型: {region.get('type')}, 边界框: {region.get('bbox')}")
