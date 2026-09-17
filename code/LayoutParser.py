@@ -1,4 +1,6 @@
 import os
+import sys
+
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
 
@@ -8,11 +10,17 @@ from paddleocr import PPStructureV3
 
 doc = pymupdf.open("../materials/sample.pdf")
 engine = PPStructureV3(lang="ch")
+print(type(doc))
+for page_idx, page in enumerate(doc):
+	print(page_idx, type(page))
+
+sys.exit()
+# todo: 
 
 for page_idx, page in enumerate(doc):
     # 1. 导出图像
     pix = page.get_pixmap(dpi=150)
-    img_path = f"temp_page_{page_idx}.png"
+    img_path = f"./temp/temp_page_{page_idx}.png"
     pix.save(img_path)
 
     # 2. 强制将长边限制在 1200 像素以内，防止内存爆炸
@@ -28,7 +36,6 @@ for page_idx, page in enumerate(doc):
     output = engine.predict(img_path)
 
     for res in output:
-        print(res.json)
         res_dict = res.json 
         regions = res_dict.get("parsing_res_list", [])
         for region in regions:
