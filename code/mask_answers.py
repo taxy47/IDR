@@ -2,23 +2,72 @@ import io
 import cv2
 import numpy as np
 from PIL import Image
-import pymupdf  # PyMuPDF 新版推荐写法
+import pymupdf
 
-def auto_clean_quiz_pdf(input_pdf_path, output_pdf_path):
-    # 打开源 PDF 并创建新 PDF
+def process_page_all_options(img_bgr):
+    """
+    精准检测图像中所有选项（方框/圆形，灰色/绿色），并统一覆盖为纯灰色框
+    """
+    # 1. 转为灰度图
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+    # 2. 图像二值化/边缘检测（提取所有图标的几何轮廓）
+    # 使用 Canny 边缘检测，不论框是什么颜色，只要有边界线就能抓出来
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 3. 膨胀边缘，把断开的线条连起来
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 4. 寻找所有闭合轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    detected_boxes = []
+
+    for cnt in contours:
+        # 获取轮廓的外接矩形
+        x, y, w, h = cv2.boundingRect(cnt)
+        
+        # -------------------------------------------------------------
+        # 筛选条件（根据选项框的几何特征过滤无关几何图形）：
+        # 1. 面积在合理区间（避免抓到微小噪点或巨大的整页边框）
+        # 2. 宽高比接近 1:1（无论方框还是圆，外接矩形都是接近正方形）
+        # -------------------------------------------------------------
+        area = w * h
+        aspect_ratio = float(w) / h
+
+        # 这里的 500~10000 适合 dpi=200 下的选项框大小，宽高比限制在 0.7~1.3 之间
+        if 500 < area < 12000 and 0.7 <= aspect_ratio <= 1.3:
+            # 排除重复嵌套的轮廓（比如框的内壁和外壁）
+            is_duplicate = False
+            for bx, by, bw, bh in detected_boxes:
+                if abs(x - bx) < 15 and abs(y - by) < 15:
+                    is_duplicate = True
+                    break
+            
+            if not is_duplicate:
+                detected_boxes.append((x, y, w, h))
+
+    # 5. 在所有识别出的选项位置，统一覆盖为标准的纯灰色实心矩形 (BGR: 128, 128, 128)
+    for x, y, w, h in detected_boxes:
+        # 微调边缘，稍微扩大 2 像素完全盖住边缘
+        cv2.rectangle(img_bgr, (x - 2, y - 2), (x + w + 2, y + h + 2), (128, 128, 128), -1)
+
+    return len(detected_boxes)
+
+def mask_all_options_pdf(input_pdf_path, output_pdf_path):
     doc = pymupdf.open(input_pdf_path)
     new_doc = pymupdf.open()
 
-    print(f"正在处理 PDF，共 {len(doc)} 页...")
+    print(f"正在扫描并处理 PDF 中的所有选项框，共 {len(doc)} 页...")
 
     for page_num in range(len(doc)):
         page = doc[page_num]
         
-        # 将 PDF 页面渲染为高分辨率图像 (dpi=200 保证公式清晰)
+        # 渲染高分辨率图像
         pix = page.get_pixmap(dpi=200)
         img_np = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 
-        # 转换为 OpenCV 处理需要的 BGR 格式
         if pix.n == 3:
             img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
         elif pix.n == 4:
@@ -26,69 +75,31 @@ def auto_clean_quiz_pdf(input_pdf_path, output_pdf_path):
         else:
             img_bgr = img_np.copy()
 
-        # 转换为 HSV 颜色空间以定位绿色答案图标
-        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        # 精准处理所有选项
+        count = process_page_all_options(img_bgr)
 
-        # 绿色的 HSV 范围
-        lower_green = np.array([35, 40, 40])
-        upper_green = np.array([85, 255, 255])
-
-        # 生成掩膜并提取轮廓
-        mask = cv2.inRange(hsv, lower_green, upper_green)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        has_masked = False
-        img_height, img_width = img_bgr.shape[:2]
-
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            # 过滤小噪点，只捕捉有效的选项绿框
-            if area > 100:
-                x, y, w, h = cv2.boundingRect(cnt)
-                
-                # -------------------------------------------------------------
-                # 核心改进逻辑：
-                # 找到绿框的横坐标 X，直接用纯白色 (255, 255, 255) 把左侧这一整列 
-                # (从顶部 y=0 到底部 y=img_height) 的 ABCD 方块全抹平！
-                # -------------------------------------------------------------
-                padding_x = 15  # 横向左右扩展的宽度，确保把边界完全覆盖
-                left_x = max(0, x - padding_x)
-                right_x = min(img_width, x + w + padding_x)
-                
-                # 将整列涂白
-                cv2.rectangle(img_bgr, (left_x, 0), (right_x, img_height), (255, 255, 255), -1)
-                
-                has_masked = True
-                break  # 抹掉整列后直接跳出，处理下一页
-
-        # 将处理后的 BGR 图像转换回 RGB 格式
+        # 转回 RGB 准备保存
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        
-        # 将内存图片转回 PDF 格式页面
         pil_img = Image.fromarray(img_rgb)
+        
         img_byte_arr = io.BytesIO()
         pil_img.save(img_byte_arr, format='JPEG', quality=95)
         
-        # 通过字节流重新打包进 PyMuPDF 页面
+        # 写回 PDF 页面
         page_doc = pymupdf.open("jpeg", img_byte_arr.getvalue())
         pdf_bytes = page_doc.convert_to_pdf()
         img_pdf = pymupdf.open("pdf", pdf_bytes)
 
-        # 追加到新 PDF 文档中
         new_doc.insert_pdf(img_pdf)
-        
-        status = "已擦除选项图标列" if has_masked else "无绿色答案，保持原样"
-        print(f"第 {page_num + 1}/{len(doc)} 页处理完成 ({status})")
+        print(f"第 {page_num + 1}/{len(doc)} 页处理完成，共重置覆盖了 {count} 个选项图标。")
 
-    # 保存最终 PDF
     new_doc.save(output_pdf_path)
     new_doc.close()
     doc.close()
-    print(f"\n处理成功！处理后的刷题版 PDF 已保存至: {output_pdf_path}")
+    print(f"\n全部处理成功！刷题版 PDF 已保存至: {output_pdf_path}")
 
-# --- 运行参数设置 ---
 if __name__ == "__main__":
-    input_file = "电磁场_带答案80页.pdf"      # 替换为你的源 PDF 路径
-    output_file = "电磁场_刷题版_无提示.pdf"  # 导出的目标 PDF 路径
+    input_file = "电磁场_带答案80页.pdf"      # 你的源 PDF 文件
+    output_file = "电磁场_全覆盖刷题版.pdf"    # 输出文件
 
-    auto_clean_quiz_pdf(input_file, output_file)
+    mask_all_options_pdf(input_file, output_file)
